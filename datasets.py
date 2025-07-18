@@ -324,10 +324,24 @@ def load_support_rgb_dict(tmp, skeletons, confs, full_path, data_transform):
 # use split rgb video for save time
 def load_video_support_rgb(path, tmp):
     vr = VideoReader(path, num_threads=1, ctx=cpu(0))
-    
+    num_frames = len(vr)
+
+    # TODO: This workaround was on the fly, figure out what is going wrong here and why
+    sampled_indices_real = [i for i in tmp if i < num_frames]
+    sampled_indices_real = np.array(sampled_indices_real)
+    tmp = sampled_indices_real[sampled_indices_real < num_frames]
+    if len(tmp) == 0:
+        tmp = np.array([0])
+    # ---------------------------------------------
+
     vr.seek(0)
     buffer = vr.get_batch(tmp).asnumpy()
+
     batch_image = buffer
+    
+
+
+    
     del vr
 
     return batch_image
@@ -424,6 +438,9 @@ class S2T_Dataset(Base_Dataset):
             raise NotImplementedError
 
         self.list = list(self.raw_data.keys())
+
+
+       
 
         self.data_transform = transforms.Compose([
                                     transforms.ToTensor(),
