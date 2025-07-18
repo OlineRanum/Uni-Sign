@@ -15,8 +15,12 @@ from models import get_requires_grad_dict
 from SLRT_metrics import translation_performance, islr_performance, wer_list
 from transformers import get_scheduler
 from config import *
+import wandb
 
 def main(args):
+
+    wandb.init(project="Uni-Sign", config=args)
+    
     utils.init_distributed_mode_ds(args)
 
     print(args)
@@ -192,11 +196,13 @@ def main(args):
 def train_one_epoch(args, model, data_loader, optimizer, epoch):
     model.train()
 
+
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
     print_freq = 10
     optimizer.zero_grad()
+    tot_epoch_loss = 0
 
     target_dtype = None
     if model.bfloat16_enabled():
@@ -213,20 +219,25 @@ def train_one_epoch(args, model, data_loader, optimizer, epoch):
         stack_out = model(src_input, tgt_input)
         
         total_loss = stack_out['loss']
+
         model.backward(total_loss)
         model.step()
 
         loss_value = total_loss.item()
+        wandb.log({"train/loss": loss_value})
+
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
             sys.exit(1)
             
         metric_logger.update(loss=loss_value)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        tot_epoch_loss += loss_value
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
+    wandb.log({"loss": tot_epoch_loss})
 
     return  {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -289,7 +300,9 @@ def evaluate(args, data_loader, model, model_without_ddp, phase):
     elif args.task == "ISLR":
         top1_acc_pi, top1_acc_pc = islr_performance(tgt_refs, tgt_pres)
         metric_logger.meters['top1_acc_pi'].update(top1_acc_pi)
+        wandb.log({"top1_acc_pi'": top1_acc_pi})
         metric_logger.meters['top1_acc_pc'].update(top1_acc_pc)
+        wandb.log({"top1_acc_pc'": top1_acc_pc})
         
     elif args.task == "CSLR":
         wer_results = wer_list(hypotheses=tgt_pres, references=tgt_refs)
